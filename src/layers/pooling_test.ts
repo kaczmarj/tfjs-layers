@@ -13,16 +13,111 @@
  */
 
 import * as tfc from '@tensorflow/tfjs-core';
-import {Tensor, tensor2d, Tensor2D, tensor3d, tensor4d, Tensor4D, util} from '@tensorflow/tfjs-core';
+import {Tensor, tensor2d, Tensor2D, tensor3d, tensor4d, Tensor4D, tensor5d, util} from '@tensorflow/tfjs-core';
 import {expectArraysClose} from '@tensorflow/tfjs-core/dist/test_util';
 
 import {SymbolicTensor} from '../engine/topology';
 import * as tfl from '../index';
 import {DataFormat, PaddingMode, PoolMode} from '../keras_format/common';
 import {convOutputLength} from '../utils/conv_utils';
-import {describeMathCPUAndGPU, expectTensorsClose} from '../utils/test_utils';
+import {describeMathCPU, describeMathCPUAndGPU, expectTensorsClose} from '../utils/test_utils';
 
-import {pool2d} from './pooling';
+import {pool2d, pool3d} from './pooling';
+
+describeMathCPU('pool3d', () => {
+  const x4by4by4Data = [
+    0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
+  ];
+  const x5by5by5Data = [
+    0,   1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,
+    14,  15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,
+    28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,
+    42,  43,  44,  45,  46,  47,  48,  49,  50,  51,  52,  53,  54,  55,
+    56,  57,  58,  59,  60,  61,  62,  63,  64,  65,  66,  67,  68,  69,
+    70,  71,  72,  73,  74,  75,  76,  77,  78,  79,  80,  81,  82,  83,
+    84,  85,  86,  87,  88,  89,  90,  91,  92,  93,  94,  95,  96,  97,
+    98,  99,  100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+    112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124
+  ];
+
+  const poolModes: PoolMode[] = [undefined, 'max'];
+  const dataFormats: DataFormat[] =
+      [undefined, 'channelsFirst', 'channelsLast'];
+  const stridesArray = [1, 2];
+  for (const poolMode of poolModes) {
+    for (const dataFormat of dataFormats) {
+      for (const stride of stridesArray) {
+        const testTitle = `4x4x4, ${stride}, same, ${dataFormat}, ` +
+            `${poolMode}`;
+        it(testTitle, () => {
+          let x: Tensor = tensor5d(x4by4by4Data, [1, 1, 4, 4, 4]);
+          if (dataFormat !== 'channelsFirst') {
+            x = tfc.transpose(x, [0, 2, 3, 4, 1]);  // NCHW -> NHWC.
+          }
+          let yExpected: Tensor;
+          if (poolMode !== 'avg') {
+            if (stride === 1) {
+              yExpected = tensor5d(
+                  [
+                    21, 22, 23, 23, 25, 26, 27, 27, 29, 30, 31, 31, 29,
+                    30, 31, 31, 37, 38, 39, 39, 41, 42, 43, 43, 45, 46,
+                    47, 47, 45, 46, 47, 47, 53, 54, 55, 55, 57, 58, 59,
+                    59, 61, 62, 63, 63, 61, 62, 63, 63, 53, 54, 55, 55,
+                    57, 58, 59, 59, 61, 62, 63, 63, 61, 62, 63, 63
+                  ],
+                  [1, 1, 4, 4, 4]);
+            } else if (stride === 2) {
+              yExpected =
+                  tensor5d([21, 23, 29, 31, 53, 55, 61, 63], [1, 1, 2, 2, 2]);
+            }
+          }
+          if (dataFormat !== 'channelsFirst') {
+            yExpected = tfc.transpose(yExpected, [0, 2, 3, 4, 1]);
+          }
+          const y = pool3d(
+              x, [2, 2, 2], [stride, stride, stride], 'same', dataFormat,
+              poolMode);
+          expectTensorsClose(y, yExpected);
+        });
+      }
+    }
+  }
+  for (const poolMode of poolModes) {
+    it(`5x5x5, 2, same, CHANNEL_FIRST, ${poolMode}`, () => {
+      const x5by5by5 = tensor5d(x5by5by5Data, [1, 1, 5, 5, 5]);
+      let yExpected = tensor5d(x4by4by4Data, [1, 1, 4, 4, 4]);
+      if (poolMode !== 'avg') {
+        yExpected = tensor5d(
+            [
+              31, 33, 34, 41, 43,  44,  46,  48,  49,  81,  83,  84,  91, 93,
+              94, 96, 98, 99, 106, 108, 109, 116, 118, 119, 121, 123, 124
+            ],
+            [1, 1, 3, 3, 3]);
+      }
+      const y = pool3d(
+          x5by5by5, [2, 2, 2], [2, 2, 2], 'same', 'channelsFirst', poolMode);
+      expectTensorsClose(y, yExpected);
+    });
+  }
+
+  for (const poolMode of poolModes) {
+    it(`5x5x5, 2, valid, CHANNEL_LAST, ${poolMode}`, () => {
+      const x5by5by5 = tfc.transpose(
+          tensor5d(x5by5by5Data, [1, 1, 5, 5, 5]), [0, 2, 3, 4, 1]);
+      let yExpected: tfc.Tensor<tfc.Rank.R5>;
+      if (poolMode !== 'avg') {
+        yExpected = tensor5d([31, 33, 41, 43, 81, 83, 91, 93], [1, 1, 2, 2, 2]);
+      }
+      const y = pool3d(
+          x5by5by5, [2, 2, 2], [2, 2, 2], 'valid', 'channelsLast', poolMode);
+      expectTensorsClose(y, tfc.transpose(yExpected, [0, 2, 3, 4, 1]));
+    });
+  }
+});
+
 
 describeMathCPUAndGPU('pool2d', () => {
   const x4by4Data = [[[
@@ -419,6 +514,210 @@ describeMathCPUAndGPU('Pooling Layers 2D: Tensor', () => {
             }
             expectTensorsClose(
                 output, tensor4d(expectedOutputArray, expectedShape));
+          });
+        }
+      }
+    }
+  }
+
+  it('Handles strides passed as number arrays', () => {
+    const model = tfl.sequential();
+    model.add(tfl.layers.maxPooling2d(
+        {poolSize: 2, strides: [2, 2], inputShape: [4, 4, 3]}));
+    const xs = tfc.ones([1, 4, 4, 3]);
+    const ys = model.predict(xs) as Tensor;
+    expectArraysClose(ys, tfc.ones([1, 2, 2, 3]));
+    const config = model.layers[0].getConfig();
+    expect(config['poolSize']).toEqual([2, 2]);
+    expect(config['strides']).toEqual([2, 2]);
+  });
+});
+
+// describe('Pooling Layers 3D: Symbolic', () => {
+//   const poolSizes = [2, 3];
+//   const poolModes = ['avg', 'max'];
+//   const paddingModes: PaddingMode[] = [undefined, 'valid', 'same'];
+//   const dataFormats: DataFormat[] = ['channelsFirst', 'channelsLast'];
+//   const poolSizeIsNumberValues = [false, true];
+
+//   for (const poolMode of poolModes) {
+//     for (const paddingMode of paddingModes) {
+//       for (const dataFormat of dataFormats) {
+//         for (const poolSize of poolSizes) {
+//           for (const poolSizeIsNumber of poolSizeIsNumberValues) {
+//             const testTitle = `poolSize=${poolSize}, ` +
+//                 `${dataFormat}, ${paddingMode}, ` +
+//                 `${poolMode}, ` +
+//                 `poollSizeIsNumber=${poolSizeIsNumber}`;
+//             it(testTitle, () => {
+//               const inputShape = dataFormat === 'channelsFirst' ?
+//                   [2, 16, 11, 9] :
+//                   [2, 11, 9, 16];
+//               const symbolicInput =
+//                   new SymbolicTensor('float32', inputShape, null, [], null);
+
+//               const poolConstructor = poolMode === 'avg' ?
+//                   tfl.layers.averagePooling2d :
+//                   tfl.layers.maxPooling2d;
+//               const poolingLayer = poolConstructor({
+//                 poolSize: poolSizeIsNumber ? poolSize : [poolSize, poolSize],
+//                 padding: paddingMode,
+//                 dataFormat,
+//               });
+
+//               const output =
+//                   poolingLayer.apply(symbolicInput) as SymbolicTensor;
+
+//               let outputRows = poolSize === 2 ? 5 : 3;
+//               if (paddingMode === 'same') {
+//                 outputRows++;
+//               }
+//               let outputCols = poolSize === 2 ? 4 : 3;
+//               if (paddingMode === 'same' && poolSize === 2) {
+//                 outputCols++;
+//               }
+
+//               let expectedShape: [number, number, number, number];
+//               if (dataFormat === 'channelsFirst') {
+//                 expectedShape = [2, 16, outputRows, outputCols];
+//               } else {
+//                 expectedShape = [2, outputRows, outputCols, 16];
+//               }
+
+//               expect(output.shape).toEqual(expectedShape);
+//               expect(output.dtype).toEqual(symbolicInput.dtype);
+//             });
+//           }
+//         }
+//       }
+//     }
+//   }
+
+//   const stridesValues: Array<number|[number, number]> = [1, [1, 1], [2, 1]];
+//   for (const strides of stridesValues) {
+//     it(`custom strides: ${strides}`, () => {
+//       const inputShape = [2, 16, 11, 3];
+//       const symbolicInput =
+//           new SymbolicTensor('float32', inputShape, null, [], null);
+//       const poolingLayer = tfl.layers.maxPooling2d({poolSize: [2, 2],
+//       strides}); const output = poolingLayer.apply(symbolicInput) as
+//       tfl.SymbolicTensor; if (Array.isArray(strides) &&
+//       util.arraysEqual(strides, [1, 1])) {
+//         expect(output.shape).toEqual([2, 15, 10, 3]);
+//       } else if (Array.isArray(strides) && util.arraysEqual(strides, [2,
+//       1])) {
+//         expect(output.shape).toEqual([2, 8, 10, 3]);
+//       } else {
+//         // strides = 1
+//         expect(output.shape).toEqual([2, 15, 10, 3]);
+//       }
+//     });
+//   }
+
+//   it('Incorrect strides array length leads to error', () => {
+//     // tslint:disable-next-line:no-any
+//     expect(() => tfl.layers.maxPooling2d({poolSize: 2, strides: [2]} as any))
+//         .toThrowError(/expected to have a length of 2/);
+//     expect(
+//         // tslint:disable-next-line:no-any
+//         () => tfl.layers.maxPooling2d({poolSize: 2, strides: [2, 3, 3]} as
+//         any)) .toThrowError(/expected to have a length of 2/);
+//   });
+
+//   it('Invalid poolSize', () => {
+//     expect(() => tfl.layers.maxPooling2d({poolSize: 2.5, strides: 2}))
+//         .toThrowError(/poolSize.*positive integer.*2\.5\.$/);
+//     expect(() => tfl.layers.maxPooling2d({poolSize: 0, strides: 2}))
+//         .toThrowError(/poolSize.*positive integer.*0\.$/);
+//     expect(() => tfl.layers.maxPooling2d({poolSize: -2, strides: 2}))
+//         .toThrowError(/poolSize.*positive integer.*-2\.$/);
+//   });
+
+//   it('Invalid strides leads to Error', () => {
+//     expect(() => tfl.layers.maxPooling2d({poolSize: 3, strides: 2.5}))
+//         .toThrowError(/strides.*positive integer.*2\.5\.$/);
+//     expect(() => tfl.layers.maxPooling2d({poolSize: 3, strides: 0}))
+//         .toThrowError(/strides.*positive integer.*0\.$/);
+//     expect(() => tfl.layers.maxPooling2d({poolSize: 3, strides: -2}))
+//         .toThrowError(/strides.*positive integer.*-2\.$/);
+//   });
+// });
+
+describeMathCPU('Pooling Layers 3D: Tensor', () => {
+  const x4by4by4Data = [
+    0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
+  ];
+
+  const poolModes: PoolMode[] = ['max'];
+  const strides = [1, 2];
+  const batchSizes = [2, 4];
+  const channelsArray = [1, 3];
+  for (const poolMode of poolModes) {
+    for (const stride of strides) {
+      for (const batchSize of batchSizes) {
+        for (const channels of channelsArray) {
+          const testTitle = `stride=${stride}, ${poolMode}, ` +
+              `batchSize=${batchSize}, channels=${channels}`;
+          it(testTitle, () => {
+            let xArrayData: number[] = [];
+            for (let b = 0; b < batchSize; ++b) {
+              for (let c = 0; c < channels; ++c) {
+                xArrayData = xArrayData.concat(x4by4by4Data);
+              }
+            }
+            const x4by4by4 =
+                tensor5d(xArrayData, [batchSize, channels, 4, 4, 4]);
+
+            // const poolConstructor = poolMode === 'avg' ?
+            //     tfl.layers.averagePooling2d :
+            //     tfl.layers.maxPooling2d;
+            const poolConstructor = tfl.layers.maxPooling3d;
+            const poolingLayer = poolConstructor({
+              poolSize: [2, 2, 2],
+              strides: [stride, stride, stride],
+              padding: 'valid',
+              dataFormat: 'channelsFirst',
+            });
+
+            const output = poolingLayer.apply(x4by4by4) as Tensor;
+
+            let expectedShape: [number, number, number, number, number];
+            let expectedOutputSlice: number[];
+            if (poolMode === 'avg') {
+              if (stride === 1) {
+                expectedShape = [batchSize, channels, 3, 3, 3];
+                expectedOutputSlice = [
+                  10, 11, 12, 14, 15, 16, 18, 19, 20, 26, 27, 28, 30, 31,
+                  32, 34, 35, 36, 42, 43, 44, 46, 47, 48, 50, 51, 52
+                ];
+              } else if (stride === 2) {
+                expectedShape = [batchSize, channels, 2, 2, 2];
+                expectedOutputSlice = [10, 12, 18, 20, 42, 44, 50, 52];
+              }
+            } else {
+              if (stride === 1) {
+                expectedShape = [batchSize, channels, 3, 3, 3];
+                expectedOutputSlice = [
+                  21, 22, 23, 25, 26, 27, 29, 30, 31, 37, 38, 39, 41, 42,
+                  43, 45, 46, 47, 53, 54, 55, 57, 58, 59, 61, 62, 63
+                ];
+              } else if (stride === 2) {
+                expectedShape = [batchSize, channels, 2, 2, 2];
+                expectedOutputSlice = [21, 23, 29, 31, 53, 55, 61, 63];
+              }
+            }
+            let expectedOutputArray: number[] = [];
+            for (let b = 0; b < batchSize; ++b) {
+              for (let c = 0; c < channels; ++c) {
+                expectedOutputArray =
+                    expectedOutputArray.concat(expectedOutputSlice);
+              }
+            }
+            expectTensorsClose(
+                output, tensor5d(expectedOutputArray, expectedShape));
           });
         }
       }
