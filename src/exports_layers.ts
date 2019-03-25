@@ -17,12 +17,13 @@ import {DepthwiseConv2D, DepthwiseConv2DLayerArgs} from './layers/convolutional_
 import {Activation, ActivationLayerArgs, Dense, DenseLayerArgs, Dropout, DropoutLayerArgs, Flatten, Permute, PermuteLayerArgs, RepeatVector, RepeatVectorLayerArgs, Reshape, ReshapeLayerArgs} from './layers/core';
 import {Embedding, EmbeddingLayerArgs} from './layers/embeddings';
 import {Add, Average, Concatenate, ConcatenateLayerArgs, Dot, DotLayerArgs, Maximum, Minimum, Multiply} from './layers/merge';
+import {AlphaDropout, AlphaDropoutArgs, GaussianDropout, GaussianDropoutArgs, GaussianNoise, GaussianNoiseArgs} from './layers/noise';
 import {BatchNormalization, BatchNormalizationLayerArgs} from './layers/normalization';
 import {ZeroPadding2D, ZeroPadding2DLayerArgs} from './layers/padding';
-import {AveragePooling1D, AveragePooling2D, GlobalAveragePooling1D, GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalMaxPooling2D, GlobalPooling2DLayerArgs, MaxPooling1D, MaxPooling2D, Pooling1DLayerArgs, Pooling2DLayerArgs} from './layers/pooling';
+import {AveragePooling1D, AveragePooling2D, GlobalAveragePooling1D, GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalMaxPooling2D, GlobalPooling2DLayerArgs, MaxPooling1D, MaxPooling2D, MaxPooling3D, Pooling1DLayerArgs, Pooling2DLayerArgs, Pooling3DLayerArgs} from './layers/pooling';
 import {GRU, GRUCell, GRUCellLayerArgs, GRULayerArgs, LSTM, LSTMCell, LSTMCellLayerArgs, LSTMLayerArgs, RNN, RNNCell, RNNLayerArgs, SimpleRNN, SimpleRNNCell, SimpleRNNCellLayerArgs, SimpleRNNLayerArgs, StackedRNNCells, StackedRNNCellsArgs} from './layers/recurrent';
 import {Bidirectional, BidirectionalLayerArgs, TimeDistributed, WrapperLayerArgs} from './layers/wrappers';
-import {GaussianNoiseArgs, GaussianNoise, GaussianDropoutArgs, GaussianDropout, AlphaDropoutArgs, AlphaDropout} from './layers/noise';
+
 
 // TODO(cais): Add doc string to all the public static functions in this
 //   class; include exectuable JavaScript code snippets where applicable
@@ -539,6 +540,18 @@ export function maxPooling1d(args: Pooling1DLayerArgs): Layer {
  */
 export function maxPooling2d(args: Pooling2DLayerArgs): Layer {
   return new MaxPooling2D(args);
+}
+
+/**
+ * @doc {
+ *   heading: 'Layers',
+ *   subheading: 'Pooling',
+ *   namespace: 'layers',
+ *   useDocsFrom: 'MaxPooling3D'
+ * }
+ */
+export function maxPooling3d(args: Pooling3DLayerArgs): Layer {
+  return new MaxPooling3D(args);
 }
 
 // Recurrent Layers.
