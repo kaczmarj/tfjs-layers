@@ -1026,6 +1026,108 @@ describeMathCPUAndGPU('Conv2DTranspose: Tensor', () => {
   }
 });
 
+describeMathCPU('Conv3DTranspose: Symbolic', () => {
+  const filtersArray = [1, 64];
+  const paddingModes: PaddingMode[] = [undefined, 'valid', 'same'];
+  const kernelSizes = [2, [2, 2, 2], [3, 3, 4]];
+  const stridesArray = [2];  // TODO: add undefined here and make tests pass
+
+  for (const filters of filtersArray) {
+    for (const padding of paddingModes) {
+      for (const kernelSize of kernelSizes) {
+        for (const strides of stridesArray) {
+          const testTitle = `filters=${filters}, paddingMode=${padding},` +
+            `kernelSize=${JSON.stringify(kernelSize)}, strides=${strides}`;
+          it(testTitle, () => {
+            const inputShape = [2, 11, 9, 16, 7];
+            const x =
+              new tfl.SymbolicTensor('float32', inputShape, null, [], null);
+
+            const layer = tfl.layers.conv3dTranspose(
+              {filters, kernelSize, padding, strides});
+            const y = layer.apply(x) as tfl.SymbolicTensor;
+
+            let expectedShape: [number, number, number, number, number];
+            if (strides === undefined) {
+              if (padding === 'valid' || padding === undefined) {
+                if (kernelSize as number === 2 ||
+                  util.arraysEqual(kernelSize as number[], [2, 2, 2])) {
+                  expectedShape = [2, 12, 10, 17, filters];
+                } else if (
+                  util.arraysEqual(kernelSize as number[], [3, 3, 4])) {
+                  expectedShape = [2, 13, 11, 19, filters];
+                }
+              } else if (padding === 'same') {
+                expectedShape = [2, 13, 11, 19, filters];
+              }
+            } else {
+              if (padding === 'valid' || padding === undefined) {
+                if (kernelSize as number === 2 ||
+                  util.arraysEqual(kernelSize as number[], [2, 2, 2])) {
+                  expectedShape = [2, 22, 18, 32, filters];
+                } else if (
+                  util.arraysEqual(kernelSize as number[], [3, 3, 4])) {
+                  expectedShape = [2, 23, 19, 34, filters];
+                }
+              } else if (padding === 'same') {
+                expectedShape = [2, 22, 18, 32, filters];
+              }
+            }
+            expect(y.shape).toEqual(expectedShape);
+          });
+        }
+      }
+    }
+  }
+
+  it('Correct weight names', () => {
+    const x = new tfl.SymbolicTensor(
+      'float32', [1, 2, 3, 4, 5], null, [], null);
+    const layer = tfl.layers.conv3dTranspose(
+      {filters: 2, kernelSize: [3, 3, 3]});
+    layer.apply(x);  // Let the layer build first.
+
+    expect(layer.weights.length).toEqual(2);
+    expect(layer.weights[0].name.indexOf('/kernel')).toBeGreaterThan(0);
+    expect(layer.weights[1].name.indexOf('/bias')).toBeGreaterThan(0);
+  });
+});
+
+describeMathCPUAndGPU('Conv3DTranspose: Tensor', () => {
+  const dataFormats: DataFormat[] = ['channelsFirst', 'channelsLast'];
+  const stridesArray = [2, [2, 2, 2]];
+  for (const dataFormat of dataFormats) {
+    for (const strides of stridesArray) {
+      const testTitle =
+        `filters=8, kernelSize=[2,2,2], padding=valid, strides=${strides}` +
+        `dataFormat=${dataFormat}`;
+      it(testTitle, () => {
+        const filters = 8;
+        const kernelSize = [2, 2, 2];
+        const padding = 'valid';
+        const strides = 2;
+        const layer = tfl.layers.conv3dTranspose({
+          filters,
+          kernelSize,
+          padding,
+          strides,
+          dataFormat,
+          kernelInitializer: 'ones',
+          biasInitializer: 'ones'
+        });
+
+        const x = tfc.ones([2, 3, 4, 2, 2]);
+        const y = layer.apply(x) as Tensor;
+        if (dataFormat === 'channelsLast') {
+          expectTensorsClose(y, tfc.ones([2, 6, 8, 4, 8]).mul(scalar(3)));
+        } else {
+          expectTensorsClose(y, tfc.ones([2, 8, 8, 4, 4]).mul(scalar(4)));
+        }
+      });
+    }
+  }
+});
+
 describeMathCPU('Conv1D Layers: Symbolic', () => {
   const filtersArray = [1, 4];
   const paddingModes: PaddingMode[] = [undefined, 'valid', 'same'];

@@ -902,6 +902,207 @@ export class Conv2DTranspose extends Conv2D {
 }
 serialization.registerClass(Conv2DTranspose);
 
+/**
+ * Transposed convolutional layer (sometimes called Deconvolution).
+ *
+ * The need for transposed convolutions generally arises
+ * from the desire to use a transformation going in the opposite direction of
+ * a normal convolution, i.e., from something that has the shape of the output
+ * of some convolution to something that has the shape of its input while
+ * maintaining a connectivity pattern that is compatible with said
+ * convolution.
+ *
+ * When using this layer as the first layer in a model, provide the
+ * configuration `inputShape` (`Array` of integers, does not include the
+ * sample axis), e.g., `inputShape: [128, 128, 128, 1]` for 128x128x128
+ * grayscale volumes in `dataFormat: 'channelsLast'`.
+ *
+ * Input shape:
+ *   5D tensor with shape:
+ *   `[batch, channels, depth, rows, cols]` if `dataFormat` is
+ * `'channelsFirst'`. or 5D tensor with shape
+ *   `[batch, depth, rows, cols, channels]` if `dataFormat` is `'channelsLast`.
+ *
+ * Output shape:
+ *   5D tensor with shape:
+ *   `[batch, filters, newDepth, newRows, newCols]` if `dataFormat` is
+ * `'channelsFirst'`. or 5D tensor with shape:
+ *   `[batch, newDepth, newRows, newCols, filters]` if `dataFormat` is
+ * `'channelsLast'`.
+ *
+ * References:
+ *   - [A guide to convolution arithmetic for deep
+ * learning](https://arxiv.org/abs/1603.07285v1)
+ *   - [Deconvolutional
+ * Networks](http://www.matthewzeiler.com/pubs/cvpr2010/cvpr2010.pdf)
+ */
+export class Conv3DTranspose extends Conv3D {
+  /** @nocollapse */
+  static className = 'Conv3DTranspose';
+  inputSpec: InputSpec[];
+
+  constructor(args: ConvLayerArgs) {
+    super(args);
+    this.inputSpec = [new InputSpec({ndim: 5})];
+
+    if (this.padding !== 'same' && this.padding !== 'valid') {
+      throw new ValueError(
+          `Conv3DTranspose currently supports only padding modes 'same' ` +
+          `and 'valid', but received padding mode ${this.padding}`);
+    }
+  }
+
+  build(inputShape: Shape|Shape[]): void {
+    inputShape = getExactlyOneShape(inputShape);
+
+    if (inputShape.length !== 5) {
+      throw new ValueError(
+          'Input should have rank 5; Received input shape: ' +
+          JSON.stringify(inputShape));
+    }
+
+    const channelAxis =
+        this.dataFormat === 'channelsFirst' ? 1 : inputShape.length - 1;
+    if (inputShape[channelAxis] == null) {
+      throw new ValueError(
+          'The channel dimension of the inputs should be defined. ' +
+          'Found `None`.');
+    }
+    const inputDim = inputShape[channelAxis];
+    const kernelShape = this.kernelSize.concat([this.filters, inputDim]);
+
+    this.kernel = this.addWeight(
+        'kernel', kernelShape, 'float32', this.kernelInitializer,
+        this.kernelRegularizer, true, this.kernelConstraint);
+    if (this.useBias) {
+      this.bias = this.addWeight(
+          'bias', [this.filters], 'float32', this.biasInitializer,
+          this.biasRegularizer, true, this.biasConstraint);
+    }
+
+    // Set input spec.
+    this.inputSpec =
+        [new InputSpec({ndim: 5, axes: {[channelAxis]: inputDim}})];
+    this.built = true;
+  }
+
+  call(inputs: Tensor|Tensor[], kwargs: Kwargs): Tensor|Tensor[] {
+    return tfc.tidy(() => {
+      let input = getExactlyOneTensor(inputs);
+      if (input.shape.length !== 5) {
+        throw new ValueError(
+            `Conv3DTranspose.call() expects input tensor to be rank-5, but ` +
+            `received a tensor of rank-${input.shape.length}`);
+      }
+
+      const inputShape = input.shape;
+      const batchSize = inputShape[0];
+
+      let dAxis: number;
+      let hAxis: number;
+      let wAxis: number;
+      if (this.dataFormat === 'channelsFirst') {
+        dAxis = 2;
+        hAxis = 3;
+        wAxis = 4;
+      } else {
+        dAxis = 1;
+        hAxis = 2;
+        wAxis = 3;
+      }
+
+      const depth = inputShape[dAxis];
+      const height = inputShape[hAxis];
+      const width = inputShape[wAxis];
+      const kernelD = this.kernelSize[0];
+      const kernelH = this.kernelSize[1];
+      const kernelW = this.kernelSize[2];
+      const strideD = this.strides[0];
+      const strideH = this.strides[1];
+      const strideW = this.strides[2];
+
+      // Infer the dynamic output shape.
+      const outDepth = deconvLength(depth, strideD, kernelD, this.padding);
+      const outHeight = deconvLength(height, strideH, kernelH, this.padding);
+      const outWidth = deconvLength(width, strideW, kernelW, this.padding);
+
+      // Porting Note: We don't branch based on `this.dataFormat` here,
+      // because
+      //   the tjfs-core function `conv3dTranspose` called below always
+      //   assumes channelsLast.
+      const outputShape: [number, number, number, number, number] =
+          [batchSize, outDepth, outHeight, outWidth, this.filters];
+
+      if (this.dataFormat !== 'channelsLast') {
+        input = tfc.transpose(input, [0, 2, 3, 4, 1]);
+      }
+      let outputs = tfc.conv3dTranspose(
+          input as tfc.Tensor<tfc.Rank.R5>,
+          this.kernel.read() as tfc.Tensor<tfc.Rank.R5>, outputShape,
+          this.strides as [number, number, number],
+          this.padding as 'same' | 'valid');
+      if (this.dataFormat !== 'channelsLast') {
+        outputs =
+            tfc.transpose(outputs, [0, 4, 1, 2, 3]) as tfc.Tensor<tfc.Rank.R5>;
+      }
+
+      if (this.bias != null) {
+        outputs = K.biasAdd(outputs, this.bias.read(), this.dataFormat) as
+            tfc.Tensor<tfc.Rank.R5>;
+      }
+      if (this.activation != null) {
+        outputs = this.activation.apply(outputs) as tfc.Tensor<tfc.Rank.R5>;
+      }
+      return outputs;
+    });
+  }
+
+  computeOutputShape(inputShape: Shape|Shape[]): Shape|Shape[] {
+    inputShape = getExactlyOneShape(inputShape);
+    const outputShape = inputShape.slice();
+
+    let channelAxis: number;
+    let depthAxis: number;
+    let heightAxis: number;
+    let widthAxis: number;
+    if (this.dataFormat === 'channelsFirst') {
+      channelAxis = 1;
+      depthAxis = 2;
+      heightAxis = 3;
+      widthAxis = 4;
+    } else {
+      channelAxis = 4;
+      depthAxis = 1;
+      heightAxis = 2;
+      widthAxis = 3;
+    }
+
+    const kernelD = this.kernelSize[0];
+    const kernelH = this.kernelSize[1];
+    const kernelW = this.kernelSize[2];
+    const strideD = this.strides[0];
+    const strideH = this.strides[1];
+    const strideW = this.strides[2];
+
+    outputShape[channelAxis] = this.filters;
+    outputShape[depthAxis] =
+        deconvLength(outputShape[depthAxis], strideD, kernelD, this.padding);
+    outputShape[heightAxis] =
+        deconvLength(outputShape[heightAxis], strideH, kernelH, this.padding);
+    outputShape[widthAxis] =
+        deconvLength(outputShape[widthAxis], strideW, kernelW, this.padding);
+    return outputShape;
+  }
+
+  getConfig(): serialization.ConfigDict {
+    const config = super.getConfig();
+    delete config['dilationRate'];
+    return config;
+  }
+}
+serialization.registerClass(Conv3DTranspose);
+
+
 export declare interface SeparableConvLayerArgs extends ConvLayerArgs {
   /**
    * The number of depthwise convolution output channels for each input
