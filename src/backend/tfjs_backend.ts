@@ -14,6 +14,8 @@
 
 import * as tfc from '@tensorflow/tfjs-core';
 import {onesLike as coreOnesLike, Scalar, scalar, Tensor, Tensor1D, tensor1d, Tensor2D, Tensor3D, Tensor4D, tidy, util, where, zerosLike as coreZerosLike} from '@tensorflow/tfjs-core';
+import {Tensor5D} from '@tensorflow/tfjs-core/dist/tensor';
+
 import {disposeScalarCache, getScalar} from '../backend/state';
 import {checkDataFormat} from '../common';
 import {NotImplementedError, ValueError} from '../errors';
@@ -166,6 +168,10 @@ export function sliceAlongFirstAxis(
         return tfc.slice4d(
             array as Tensor4D, [start, 0, 0, 0],
             [size, array.shape[1], array.shape[2], array.shape[3]]);
+      case 5:
+        return tfc.slice5d(array as Tensor5D, [start, 0, 0, 0, 0], [
+          size, array.shape[1], array.shape[2], array.shape[3], array.shape[4]
+        ]);
       default:
         throw new ValueError(
             `sliceAlongFirstAxis() received an unsupported tensor rank: ` +
